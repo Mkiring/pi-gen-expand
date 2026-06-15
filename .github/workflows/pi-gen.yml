@@ -79,6 +79,7 @@ jobs:
     steps:
       - name: Set up swap space
         run: |
+          sudo swapoff /swapfile 2>/dev/null || true
           sudo fallocate -l 4G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
