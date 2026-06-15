@@ -176,7 +176,7 @@ jobs:
           username: ${{ inputs.username }}
           password: ${{ inputs.password }}
           hostname: ${{ inputs.dev_name }}
-          increase-runner-disk-size: false
+          increase-runner-disk-size: true
           release: ${{ steps.extract_release.outputs.release }}
 
       - name: Upload ${{ inputs.dev_name }} image
