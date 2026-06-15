@@ -158,7 +158,7 @@ jobs:
           echo "Detected release codename: $REL"
 
       - name: Build ${{ inputs.dev_name }} with stagelists
-        uses: usimd/pi-gen-action@f96f92b5
+        uses: usimd/pi-gen-action@f96f92b57404d56008c0cd7282cf4b3f6e260963
         id: build
         with:
           compression: xz
