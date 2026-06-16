@@ -157,6 +157,13 @@ jobs:
           echo "release=$REL" >> "$GITHUB_OUTPUT"
           echo "Detected release codename: $REL"
 
+      - name: Setup binfmt_misc for arm64 emulation
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          echo "--- binfmt_misc state after install ---"
+          ls /proc/sys/fs/binfmt_misc/ | grep -E 'qemu|register|status' || true
+          cat /proc/sys/fs/binfmt_misc/qemu-aarch64 2>&1 || true
+
       - name: Build ${{ inputs.dev_name }} with stagelists
         uses: usimd/pi-gen-action@v1
         id: build
