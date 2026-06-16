@@ -73,7 +73,8 @@ env:
   EXPORT_LAST_STAGE_ONLY: true
   PI_GEN_DIR: 'pi-gen'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  DOCKER_BUILDKIT: '0'
+  BUILDX_GIT_INFO: 'false'
+  BUILDX_GIT_LABELS: 'false'
   
 jobs:
   pi-gen-image:
@@ -158,6 +159,9 @@ jobs:
           fi
           echo "release=$REL" >> "$GITHUB_OUTPUT"
           echo "Detected release codename: $REL"
+
+      - name: Check buildx version
+        run: docker buildx version
 
       - name: Setup binfmt_misc for arm64 emulation
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64
