@@ -75,7 +75,7 @@ env:
   
 jobs:
   pi-gen-image:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Set up swap space
         run: |
