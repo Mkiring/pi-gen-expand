@@ -72,6 +72,7 @@ on:
 env:
   EXPORT_LAST_STAGE_ONLY: true
   PI_GEN_DIR: 'pi-gen'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   
 jobs:
   pi-gen-image:
