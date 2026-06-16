@@ -158,7 +158,7 @@ jobs:
           echo "Detected release codename: $REL"
 
       - name: Build ${{ inputs.dev_name }} with stagelists
-        uses: usimd/pi-gen-action@f96f92b57404d56008c0cd7282cf4b3f6e260963
+        uses: usimd/pi-gen-action@v1
         id: build
         with:
           compression: xz
@@ -176,7 +176,7 @@ jobs:
           username: ${{ inputs.username }}
           password: ${{ inputs.password }}
           hostname: ${{ inputs.dev_name }}
-          increase-runner-disk-size: true
+          increase-runner-disk-size: false
           release: ${{ steps.extract_release.outputs.release }}
 
       - name: Upload ${{ inputs.dev_name }} image
