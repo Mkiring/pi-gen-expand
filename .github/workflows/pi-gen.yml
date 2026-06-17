@@ -163,6 +163,11 @@ jobs:
       - name: Check buildx version
         run: docker buildx version
 
+      - name: Preserve buildx env across sudo
+        run: |
+          echo 'Defaults env_keep += "BUILDX_GIT_INFO BUILDX_GIT_LABELS"' | sudo tee /etc/sudoers.d/buildx-env
+          sudo visudo -c -f /etc/sudoers.d/buildx-env
+
       - name: Debug BUILDX env passing
         run: |
           echo "=== 1. shell env ==="
