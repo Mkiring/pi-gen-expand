@@ -163,18 +163,6 @@ jobs:
       - name: Check buildx version
         run: docker buildx version
 
-      - name: Debug buildx git warning
-        run: |
-          echo "=== shell env ==="
-          env | grep -E 'BUILDX|BUILDKIT' || echo "(none)"
-          echo
-          echo "=== docker buildx ls ==="
-          docker buildx ls
-          echo
-          echo "=== test buildx build (should NOT print git warning if env works) ==="
-          mkdir -p /tmp/bx-test && echo "FROM alpine" > /tmp/bx-test/Dockerfile
-          cd /tmp/bx-test && docker buildx build --progress=plain . 2>&1 | tail -20
-
       - name: Setup binfmt_misc for arm64 emulation
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64
 
