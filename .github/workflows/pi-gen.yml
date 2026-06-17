@@ -185,6 +185,15 @@ jobs:
           echo "--- with BUILDX_GIT_INFO/LABELS=false (expect NO WARNING if env works) ---"
           BUILDX_GIT_INFO=false BUILDX_GIT_LABELS=false docker buildx build --progress=plain . 2>&1 | grep -iE 'WARNING|git was not found' | head -5
           echo "exit: $?"
+          echo
+          echo "--- use 'docker build' (not 'docker buildx build') like pi-gen does ---"
+          echo "  with BUILDX_GIT_INFO/LABELS=false from workflow env (inherited):"
+          docker build --progress=plain . 2>&1 | grep -iE 'WARNING|git was not found' | head -5
+          echo "exit: $?"
+          echo
+          echo "--- also confirm git is actually findable ---"
+          which git
+          git --version
 
       - name: Setup binfmt_misc for arm64 emulation
         run: docker run --privileged --rm tonistiigi/binfmt --install arm64
