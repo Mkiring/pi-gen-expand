@@ -16,6 +16,9 @@ on:
 jobs:
   Build-all-images:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
     steps:
       - name: Check tag
         id: check_tag
@@ -26,17 +29,15 @@ jobs:
            echo "TAG_NAME=${{ github.ref }}" >> $GITHUB_ENV
           fi
 
-      - name: Creat release
+      - name: Create release
         id: create_release
-        uses: actions/create-release@v1.1.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v3
         with:
          tag_name: ${{ env.TAG_NAME }}
          draft: false
 
       - name: build raspberrypi image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
           workflow: Build pi-gen image
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -55,7 +56,7 @@ jobs:
                 }
 
       - name: build reComputer-R100x image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
             workflow: Build pi-gen image
             token: ${{ secrets.GITHUB_TOKEN }}
@@ -74,7 +75,7 @@ jobs:
                 }
 
       - name: build reComputer-R110x image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
             workflow: Build pi-gen image
             token: ${{ secrets.GITHUB_TOKEN }}
@@ -93,7 +94,7 @@ jobs:
                 }
 
       - name: build reComputer-R2x image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
             workflow: Build pi-gen image
             token: ${{ secrets.GITHUB_TOKEN }}
@@ -112,7 +113,7 @@ jobs:
                 }
 
       - name: build reComputer-R22 image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
             workflow: Build pi-gen image
             token: ${{ secrets.GITHUB_TOKEN }}
@@ -131,7 +132,7 @@ jobs:
                 }
 
       - name: build reComputer-AI-box image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
             workflow: Build pi-gen image
             token: ${{ secrets.GITHUB_TOKEN }}
@@ -150,7 +151,7 @@ jobs:
                 }
 
       - name: build reComputer-AI-box image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
             workflow: Build pi-gen image
             token: ${{ secrets.GITHUB_TOKEN }}
@@ -169,7 +170,7 @@ jobs:
                 }
                                               
       - name: build reTerminal image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
             workflow: Build pi-gen image
             token: ${{ secrets.GITHUB_TOKEN }}
@@ -188,7 +189,7 @@ jobs:
                  }
     
       - name: build reTerminal-DM image
-        uses: benc-uk/workflow-dispatch@v1.1
+        uses: benc-uk/workflow-dispatch@v1.3.2
         with:
             workflow: Build pi-gen image
             token: ${{ secrets.GITHUB_TOKEN }}
