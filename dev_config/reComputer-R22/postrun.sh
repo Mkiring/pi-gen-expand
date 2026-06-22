@@ -102,13 +102,22 @@ cd hailort-drivers/linux/pcie
 make clean >/dev/null 2>&1 || true
 make all KERNEL_DIR=/lib/modules/$kernelver/build
 
+# Locate built module (v4 driver: ./hailo_pci.ko; v5 driver: build/release/<arch>/hailo1x_pci.ko)
+BUILT_KO=$(find . -type f \( -name 'hailo_pci.ko' -o -name 'hailo1x_pci.ko' \) | head -1)
+if [ -z "$BUILT_KO" ]; then
+    echo "ERROR: hailo pci module not found after make. Files in $(pwd):"
+    find . -maxdepth 4 -type f \( -name '*.ko' -o -name '*.o' \) || true
+    exit 1
+fi
+echo "Found hailo module: $BUILT_KO"
+
 # Install to misc directory
 mkdir -p /lib/modules/$kernelver/kernel/drivers/misc
-cp hailo_pci.ko /lib/modules/$kernelver/kernel/drivers/misc/
+cp "$BUILT_KO" /lib/modules/$kernelver/kernel/drivers/misc/
 
-# Remove kernel built-in hailo driver 
+# Remove kernel built-in hailo driver
 if [ -d "/lib/modules/$kernelver/kernel/drivers/media/pci/hailo" ]; then
-    find /lib/modules/$kernelver/kernel/drivers/media/pci/hailo -name "hailo_pci.ko*" -delete 2>/dev/null || true
+    find /lib/modules/$kernelver/kernel/drivers/media/pci/hailo -name "hailo*pci.ko*" -delete 2>/dev/null || true
 fi
 
 # Update module dependencies
