@@ -144,7 +144,15 @@ jobs:
           #   - command: qemu-arm-static   (checked via `hash` in dependencies_check)
           #   - package: qemu-user-static  (apt-get installed by pi-gen-action)
           sudo apt-get update
-          sudo apt-get install -y qemu-user equivs
+          sudo apt-get install -y --no-install-recommends qemu-user equivs
+
+          # qemu-user-binfmt declares unversioned Breaks: qemu-user-static and
+          # gets pulled in via `qemu-user`'s Recommends by default. Make sure
+          # it's gone before we install our equivs shim.
+          if dpkg -l qemu-user-binfmt 2>/dev/null | grep -q '^ii'; then
+            echo "Removing pre-installed qemu-user-binfmt to avoid Breaks conflict"
+            sudo apt-get remove -y qemu-user-binfmt
+          fi
 
           # Shim 1: equivs dummy package so pi-gen-action's
           # `apt-get install qemu-user-static` resolves. Depends on qemu-user
