@@ -132,22 +132,46 @@ jobs:
           sudo -E apt-get -qq clean
           df -h
 
-      - name: Enable ubuntu universe component
+      - name: Provide qemu-user-static shim for bookworm-arm64 builds
         run: |
-          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-            sudo sed -i 's/^Components:.*main$/& universe/' /etc/apt/sources.list.d/ubuntu.sources
-          else
-            REL=$(lsb_release -sc)
-            for comp in "" -updates -security; do
-              echo "deb http://archive.ubuntu.com/ubuntu ${REL}${comp} universe" \
-                | sudo tee -a /etc/apt/sources.list.d/universe.list
-            done
-          fi
+          # Ubuntu 26.04 (resolute) removed the qemu-user-static package entirely;
+          # qemu-user-binfmt (in universe) no longer Provides/Replaces it.
+          # pi-gen's bookworm-arm64 branch depends file references both:
+          #   - the `qemu-arm-static` command
+          #   - the `qemu-user-static` package
+          # so we need TWO shims for pi-gen-action + pi-gen's own dep check.
           sudo apt-get update
-          echo "=== qemu-user-binfmt policy ==="
-          apt-cache policy qemu-user-binfmt
-          echo "=== qemu-user-static policy ==="
-          apt-cache policy qemu-user-static || true
+          sudo apt-get install -y qemu-user-binfmt equivs
+
+          # Shim 1: provide the qemu-arm-static command (pi-gen dependencies_check
+          # uses `hash qemu-arm-static` and exits if not found).
+          if [ -e /usr/bin/qemu-arm ]; then
+            sudo ln -sf /usr/bin/qemu-arm /usr/local/bin/qemu-arm-static
+          else
+            echo "ERROR: /usr/bin/qemu-arm not found after installing qemu-user-binfmt"
+            exit 1
+          fi
+
+          # Shim 2: provide the qemu-user-static package name so action's
+          # `apt-get install qemu-user-static` does not fail with
+          # "no installation candidate".
+          mkdir -p /tmp/qemu-shim && cd /tmp/qemu-shim
+          cat > qemu-user-static.cfg <<'EOF'
+          Section: misc
+          Priority: optional
+          Package: qemu-user-static
+          Version: 99.0
+          Architecture: all
+          Depends: qemu-user-binfmt
+          Description: Local shim for pi-gen on Ubuntu 26.04 where qemu-user-static was removed
+          EOF
+          equivs-build qemu-user-static.cfg
+          sudo dpkg -i qemu-user-static_*.deb
+
+          echo "=== verify shims ==="
+          command -v qemu-arm-static
+          command -v qemu-arm
+          dpkg -l qemu-user-static qemu-user-binfmt 2>/dev/null | tail -3 || true
 
       - name: Getting parameter configuration
         run: |
