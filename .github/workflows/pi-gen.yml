@@ -134,27 +134,21 @@ jobs:
 
       - name: Provide qemu-user-static shim for bookworm-arm64 builds
         run: |
-          # Ubuntu 26.04 (resolute) removed the qemu-user-static package entirely;
-          # qemu-user-binfmt (in universe) no longer Provides/Replaces it.
-          # pi-gen's bookworm-arm64 branch depends file references both:
-          #   - the `qemu-arm-static` command
-          #   - the `qemu-user-static` package
-          # so we need TWO shims for pi-gen-action + pi-gen's own dep check.
+          # Ubuntu 26.04 (resolute) removed the qemu-user-static package entirely.
+          # qemu-user-binfmt declares an unversioned `Breaks: qemu-user-static`,
+          # so the two cannot coexist. We rely on the workflow's existing
+          # `tonistiigi/binfmt --install arm64` step for binfmt_misc registration
+          # and only install qemu-user (which provides /usr/bin/qemu-arm).
+          #
+          # pi-gen's bookworm-arm64 depends file references both:
+          #   - command: qemu-arm-static   (checked via `hash` in dependencies_check)
+          #   - package: qemu-user-static  (apt-get installed by pi-gen-action)
           sudo apt-get update
-          sudo apt-get install -y qemu-user-binfmt equivs
+          sudo apt-get install -y qemu-user equivs
 
-          # Shim 1: provide the qemu-arm-static command (pi-gen dependencies_check
-          # uses `hash qemu-arm-static` and exits if not found).
-          if [ -e /usr/bin/qemu-arm ]; then
-            sudo ln -sf /usr/bin/qemu-arm /usr/local/bin/qemu-arm-static
-          else
-            echo "ERROR: /usr/bin/qemu-arm not found after installing qemu-user-binfmt"
-            exit 1
-          fi
-
-          # Shim 2: provide the qemu-user-static package name so action's
-          # `apt-get install qemu-user-static` does not fail with
-          # "no installation candidate".
+          # Shim 1: equivs dummy package so pi-gen-action's
+          # `apt-get install qemu-user-static` resolves. Depends on qemu-user
+          # (NOT qemu-user-binfmt, which would trigger the Breaks).
           mkdir -p /tmp/qemu-shim && cd /tmp/qemu-shim
           cat > qemu-user-static.cfg <<'EOF'
           Section: misc
@@ -162,16 +156,26 @@ jobs:
           Package: qemu-user-static
           Version: 99.0
           Architecture: all
-          Depends: qemu-user-binfmt
+          Depends: qemu-user
           Description: Local shim for pi-gen on Ubuntu 26.04 where qemu-user-static was removed
           EOF
           equivs-build qemu-user-static.cfg
           sudo dpkg -i qemu-user-static_*.deb
 
+          # Shim 2: pi-gen's dependencies_check runs `hash qemu-arm-static`
+          # and exits if not found.
+          if [ -e /usr/bin/qemu-arm ]; then
+            sudo ln -sf /usr/bin/qemu-arm /usr/local/bin/qemu-arm-static
+          else
+            echo "ERROR: /usr/bin/qemu-arm not found after installing qemu-user"
+            exit 1
+          fi
+
           echo "=== verify shims ==="
           command -v qemu-arm-static
           command -v qemu-arm
-          dpkg -l qemu-user-static qemu-user-binfmt 2>/dev/null | tail -3 || true
+          command -v qemu-aarch64
+          dpkg -l qemu-user-static qemu-user 2>/dev/null | tail -3 || true
 
       - name: Getting parameter configuration
         run: |
