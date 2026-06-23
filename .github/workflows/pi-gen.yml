@@ -132,6 +132,23 @@ jobs:
           sudo -E apt-get -qq clean
           df -h
 
+      - name: Enable ubuntu universe component
+        run: |
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i 's/^Components:.*main$/& universe/' /etc/apt/sources.list.d/ubuntu.sources
+          else
+            REL=$(lsb_release -sc)
+            for comp in "" -updates -security; do
+              echo "deb http://archive.ubuntu.com/ubuntu ${REL}${comp} universe" \
+                | sudo tee -a /etc/apt/sources.list.d/universe.list
+            done
+          fi
+          sudo apt-get update
+          echo "=== qemu-user-binfmt policy ==="
+          apt-cache policy qemu-user-binfmt
+          echo "=== qemu-user-static policy ==="
+          apt-cache policy qemu-user-static || true
+
       - name: Getting parameter configuration
         run: |
           if [ -d "dev_config/${{ inputs.dev_name }}" ]; then
