@@ -1,30 +1,42 @@
 #!/bin/bash -e
 set -x
 
-# Download and patch hailort-pcie-driver to avoid modprobe failure.
-# Note: hailort-pcie-driver only exists as a separate package on trixie (Debian 13)
-# Pi OS repo. On bookworm the same functionality lives in hailo-dkms, so the
-# download may legitimately fail there — make it optional and let the DEB_FILE
-# guard below skip the whole patch block.
 apt-get update
-cd /tmp && apt-get download hailort-pcie-driver || echo "hailort-pcie-driver not available on this release, skipping patch"
 
-DEB_FILE=$(ls hailort-pcie-driver_*.deb 2>/dev/null | head -1)
+# Detect Debian release once (bookworm=12, trixie=13)
+DEBIAN_NUM=$(cat /etc/debian_version | awk -F'.' '{print $1}')
 
-if [ -n "$DEB_FILE" ]; then
-    echo "=== Patching $DEB_FILE postinst ==="
-    
-    # Extract to single temp directory
-    mkdir -p /tmp/pcie-pkg
-    dpkg-deb -x "$DEB_FILE" /tmp/pcie-pkg
-    dpkg-deb -e "$DEB_FILE" /tmp/pcie-pkg/DEBIAN
-    
-    if [ -f /tmp/pcie-pkg/DEBIAN/postinst ]; then
-        # Save original content 
-        ORIGINAL_CONTENT=$(tail -n +4 /tmp/pcie-pkg/DEBIAN/postinst)
-        
-        # Create new postinst with chroot detection
-        cat > /tmp/pcie-pkg/DEBIAN/postinst << 'POSTINST_EOF'
+if [ "$DEBIAN_NUM" -lt 13 ]; then
+    ##################################################################
+    # Bookworm (Debian 12)
+    # Kernel module comes from hailo-dkms in the Pi OS apt repo; DKMS
+    # auto-builds it against the running kernel, so no manual compile.
+    ##################################################################
+    echo "=== Installing hailo via apt (bookworm) ==="
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        raspberrypi-kernel-headers hailo-all hailo-dkms
+else
+    ##################################################################
+    # Trixie (Debian 13+)
+    # Patch hailort-pcie-driver postinst to skip modprobe while in the
+    # build chroot, then build hailo_pci.ko from source against the
+    # kernel that will actually boot on the target board.
+    ##################################################################
+    echo "=== Installing hailo via apt + source compile (trixie) ==="
+
+    # Download hailort-pcie-driver and rewrite its postinst to no-op inside a chroot
+    cd /tmp && apt-get download hailort-pcie-driver
+    DEB_FILE=$(ls hailort-pcie-driver_*.deb 2>/dev/null | head -1)
+
+    if [ -n "$DEB_FILE" ]; then
+        echo "=== Patching $DEB_FILE postinst ==="
+        mkdir -p /tmp/pcie-pkg
+        dpkg-deb -x "$DEB_FILE" /tmp/pcie-pkg
+        dpkg-deb -e "$DEB_FILE" /tmp/pcie-pkg/DEBIAN
+
+        if [ -f /tmp/pcie-pkg/DEBIAN/postinst ]; then
+            ORIGINAL_CONTENT=$(tail -n +4 /tmp/pcie-pkg/DEBIAN/postinst)
+            cat > /tmp/pcie-pkg/DEBIAN/postinst << 'POSTINST_EOF'
 #!/bin/bash
 set -eEuo pipefail
 
@@ -40,110 +52,82 @@ fi
 
 # Original postinst logic
 POSTINST_EOF
-        
-        # Append original content
-        echo "$ORIGINAL_CONTENT" >> /tmp/pcie-pkg/DEBIAN/postinst
-        chmod +x /tmp/pcie-pkg/DEBIAN/postinst
-        
-        # Repack and install
-        dpkg-deb --root-owner-group -b /tmp/pcie-pkg /tmp/hailort-pcie-driver-patched.deb
-        dpkg -i /tmp/hailort-pcie-driver-patched.deb
-        
-        echo "=== Patched driver installed ==="
+            echo "$ORIGINAL_CONTENT" >> /tmp/pcie-pkg/DEBIAN/postinst
+            chmod +x /tmp/pcie-pkg/DEBIAN/postinst
+
+            dpkg-deb --root-owner-group -b /tmp/pcie-pkg /tmp/hailort-pcie-driver-patched.deb
+            dpkg -i /tmp/hailort-pcie-driver-patched.deb
+            echo "=== Patched driver installed ==="
+        fi
+        rm -rf /tmp/pcie-pkg "$DEB_FILE" /tmp/hailort-pcie-driver-patched.deb
     fi
-    
-    # Cleanup
-    rm -rf /tmp/pcie-pkg "$DEB_FILE" /tmp/hailort-pcie-driver-patched.deb
-fi
 
-# Install hailo-all
-DEBIAN_FRONTEND=noninteractive apt-get install -y hailo-all
+    # User-space stack
+    DEBIAN_FRONTEND=noninteractive apt-get install -y hailo-all
 
-uname_r=$(uname -r)
-arch_r=$(dpkg --print-architecture)
-BOOKWORM_NUM=12
-DEBIAN_VER=`cat /etc/debian_version`
-DEBIAN_NUM=$(echo "$DEBIAN_VER" | awk -F'.' '{print $1}')
-
-_VER_RUN=""
-function get_kernel_version() {
-  local ZIMAGE IMG_OFFSET
-
-  if [ -z "$_VER_RUN" ]; then
-    if [ $DEBIAN_NUM -lt $BOOKWORM_NUM ]; then
-      ZIMAGE=/boot/kernel7l.img
-      if [ $arch_r == "arm64" ]; then
-        ZIMAGE=/boot/kernel8.img
-      fi
-    else
-      ZIMAGE=/boot/firmware/kernel7l.img
-      if [[ $arch_r == "arm64" || $uname_r == *rpi-v8* ]]; then
+    # Resolve the kernel version baked into the boot image (not uname -r,
+    # which is the builder kernel, not the target kernel)
+    uname_r=$(uname -r)
+    arch_r=$(dpkg --print-architecture)
+    _VER_RUN=""
+    function get_kernel_version() {
+      local ZIMAGE IMG_OFFSET
+      if [ -z "$_VER_RUN" ]; then
         ZIMAGE=/boot/firmware/kernel8.img
-        # if is pi5 or cm5, we use kernel_2712.img, if rpi-2712 in uname_r
         if [[ $uname_r != *rpi-v8* ]]; then
           ZIMAGE=/boot/firmware/kernel_2712.img
         fi
       fi
+      [ -f /boot/firmware/vmlinuz ] && ZIMAGE=/boot/firmware/vmlinuz
+      IMG_OFFSET=$(LC_ALL=C grep -abo $'\x1f\x8b\x08\x00' $ZIMAGE | head -n 1 | cut -d ':' -f 1)
+      _VER_RUN=$(dd if=$ZIMAGE obs=64K ibs=4 skip=$(( IMG_OFFSET / 4)) 2>/dev/null | zcat | grep -a -m1 "Linux version" | strings | awk '{ print $3; }' | grep "[0-9]")
+      echo "$_VER_RUN"
+      return 0
+    }
+    kernelver=$(get_kernel_version)
+
+    # Strip Pi OS package suffix so we hit an upstream tag that actually exists
+    VERSION=$(apt list hailo-all | grep hailo-all | awk '{print $2}' | cut -d'+' -f1)
+    git clone https://github.com/hailo-ai/hailort-drivers.git -b v$VERSION hailort-drivers
+    cd hailort-drivers/linux/pcie
+
+    make clean >/dev/null 2>&1 || true
+    make all KERNEL_DIR=/lib/modules/$kernelver/build
+
+    # v4 driver produces ./hailo_pci.ko, v5 produces build/release/<arch>/hailo1x_pci.ko
+    BUILT_KO=$(find . -type f \( -name 'hailo_pci.ko' -o -name 'hailo1x_pci.ko' \) | head -1)
+    if [ -z "$BUILT_KO" ]; then
+        echo "ERROR: hailo pci module not found after make. Files in $(pwd):"
+        find . -maxdepth 4 -type f \( -name '*.ko' -o -name '*.o' \) || true
+        exit 1
     fi
-  fi
+    echo "Found hailo module: $BUILT_KO"
 
-  [ -f /boot/firmware/vmlinuz ] && ZIMAGE=/boot/firmware/vmlinuz
-  IMG_OFFSET=$(LC_ALL=C grep -abo $'\x1f\x8b\x08\x00' $ZIMAGE | head -n 1 | cut -d ':' -f 1)
-  _VER_RUN=$(dd if=$ZIMAGE obs=64K ibs=4 skip=$(( IMG_OFFSET / 4)) 2>/dev/null | zcat | grep -a -m1 "Linux version" | strings | awk '{ print $3; }' | grep "[0-9]")
+    mkdir -p /lib/modules/$kernelver/kernel/drivers/misc
+    cp "$BUILT_KO" /lib/modules/$kernelver/kernel/drivers/misc/
 
-  echo "$_VER_RUN"
-  
-  return 0
-}
+    # Remove kernel built-in hailo driver so the freshly built one wins
+    if [ -d "/lib/modules/$kernelver/kernel/drivers/media/pci/hailo" ]; then
+        find /lib/modules/$kernelver/kernel/drivers/media/pci/hailo -name "hailo*pci.ko*" -delete 2>/dev/null || true
+    fi
+    depmod -a $kernelver 2>/dev/null || true
 
-kernelver=$(get_kernel_version)
+    cd ../..
+    if [ -f "./download_firmware.sh" ]; then
+        chmod +x ./download_firmware.sh
+        ./download_firmware.sh
+        mkdir -p /lib/firmware/hailo
+        mv hailo8_fw.4.*.bin /lib/firmware/hailo/hailo8_fw.bin
+    else
+        echo "Warning: download_firmware.sh not found, skipping firmware installation"
+    fi
 
-VERSION=$(apt list hailo-all | grep hailo-all | awk '{print $2}' | cut -d' ' -f1)
-git clone https://github.com/hailo-ai/hailort-drivers.git -b v$VERSION hailort-drivers
-cd hailort-drivers/linux/pcie
-
-# Compile driver using correct kernel headers
-make clean >/dev/null 2>&1 || true
-make all KERNEL_DIR=/lib/modules/$kernelver/build
-
-# Locate built module (v4 driver: ./hailo_pci.ko; v5 driver: build/release/<arch>/hailo1x_pci.ko)
-BUILT_KO=$(find . -type f \( -name 'hailo_pci.ko' -o -name 'hailo1x_pci.ko' \) | head -1)
-if [ -z "$BUILT_KO" ]; then
-    echo "ERROR: hailo pci module not found after make. Files in $(pwd):"
-    find . -maxdepth 4 -type f \( -name '*.ko' -o -name '*.o' \) || true
-    exit 1
-fi
-echo "Found hailo module: $BUILT_KO"
-
-# Install to misc directory
-mkdir -p /lib/modules/$kernelver/kernel/drivers/misc
-cp "$BUILT_KO" /lib/modules/$kernelver/kernel/drivers/misc/
-
-# Remove kernel built-in hailo driver
-if [ -d "/lib/modules/$kernelver/kernel/drivers/media/pci/hailo" ]; then
-    find /lib/modules/$kernelver/kernel/drivers/media/pci/hailo -name "hailo*pci.ko*" -delete 2>/dev/null || true
+    mkdir -p /etc/udev/rules.d
+    cp ./linux/pcie/51-hailo-udev.rules /etc/udev/rules.d/
+    rm -rf hailort-drivers
 fi
 
-# Update module dependencies
-depmod -a $kernelver 2>/dev/null || true
-
-cd ../..
-
-if [ -f "./download_firmware.sh" ]; then
-    chmod +x ./download_firmware.sh
-    ./download_firmware.sh
-    mkdir -p /lib/firmware/hailo
-    mv hailo8_fw.4.*.bin /lib/firmware/hailo/hailo8_fw.bin
-else
-    echo "Warning: download_firmware.sh not found, skipping firmware installation"
-fi
-
-mkdir -p /etc/udev/rules.d
-cp ./linux/pcie/51-hailo-udev.rules /etc/udev/rules.d/
-
-rm -rf hailort-drivers
-
-# install examples
+# Install hailo-rpi5-examples (common to both releases)
 echo ${FIRST_USER_NAME}
 sudo echo ${FIRST_USER_NAME}
 
