@@ -1,9 +1,13 @@
 #!/bin/bash -e
 set -x
 
-# Download and patch hailort-pcie-driver to avoid modprobe failure
+# Download and patch hailort-pcie-driver to avoid modprobe failure.
+# Note: hailort-pcie-driver only exists as a separate package on trixie (Debian 13)
+# Pi OS repo. On bookworm the same functionality lives in hailo-dkms, so the
+# download may legitimately fail there — make it optional and let the DEB_FILE
+# guard below skip the whole patch block.
 apt-get update
-cd /tmp && apt-get download hailort-pcie-driver
+cd /tmp && apt-get download hailort-pcie-driver || echo "hailort-pcie-driver not available on this release, skipping patch"
 
 DEB_FILE=$(ls hailort-pcie-driver_*.deb 2>/dev/null | head -1)
 
