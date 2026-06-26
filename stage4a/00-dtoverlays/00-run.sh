@@ -10,7 +10,16 @@ GIT_MODULE='https://github.com/Seeed-Studio/seeed-linux-dtoverlays.git -b master
 
 if [ "X$GIT_MODULE" != "X" ]; then
 	MODULE_PATH=/seeed-linux-dtoverlays
-	${PROXYCHAINS} git clone ${GIT_MODULE} "${ROOTFS_DIR}${MODULE_PATH}"
+	# Retry clone to survive transient TLS failures (e.g. gnutls_handshake)
+	for attempt in 1 2 3 4 5; do
+		rm -rf "${ROOTFS_DIR}${MODULE_PATH}"
+		if ${PROXYCHAINS} git clone ${GIT_MODULE} "${ROOTFS_DIR}${MODULE_PATH}"; then
+			break
+		fi
+		echo "Clone attempt $attempt failed, retrying in 10s..."
+		[ "$attempt" = "5" ] && { echo "ERROR: git clone failed after 5 attempts"; exit 1; }
+		sleep 10
+	done
 	# ${PROXYCHAINS} wget http://192.168.1.77/reTerminalDM/dt-blob-disp1-cam2.bin -O "${ROOTFS_DIR}/boot/dt-blob.bin"
 
 	on_chroot << EOF

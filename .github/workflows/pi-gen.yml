@@ -78,15 +78,17 @@ env:
   
 jobs:
   pi-gen-image:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04
     steps:
       - name: Set up swap space
         run: |
-          sudo swapoff /swapfile 2>/dev/null || true
-          sudo fallocate -l 4G /swapfile
+          set +e
+          sudo swapoff /swapfile
+          sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          set -e
           swapon --show
           free -h
           
@@ -95,6 +97,7 @@ jobs:
           fetch-depth: 0
 
       - name: before Build
+        if: ${{ env.ACT != 'true' }}
         run: |
           sudo apt-get remove aria2 ansible shellcheck rpm xorriso zsync \
           clang-6.0 lldb-6.0 lld-6.0 clang-format-6.0 clang-8 lldb-8 lld-8 clang-format-8 \
@@ -210,6 +213,14 @@ jobs:
           which git
           git --version
 
+      - name: Install locales (act only)
+        if: ${{ env.ACT == 'true' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y locales
+          sudo locale-gen en_GB.UTF-8 en_US.UTF-8
+          mkdir -p /var/tmp/pi-gen-work
+
       - name: Build ${{ inputs.dev_name }} with stagelists
         uses: usimd/pi-gen-action@v1
         id: build
@@ -231,6 +242,7 @@ jobs:
           hostname: ${{ inputs.dev_name }}
           increase-runner-disk-size: false
           release: ${{ steps.extract_release.outputs.release }}
+          docker-opts: -v /var/tmp/pi-gen-work:/pi-gen/work
 
       - name: Upload ${{ inputs.dev_name }} image
         id: artifact-upload-step
