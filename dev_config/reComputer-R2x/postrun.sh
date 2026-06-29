@@ -19,9 +19,10 @@ if [ "${DEBIAN_VER:-0}" -ge 13 ]; then
         echo "=== trixie: patching hailort-pcie-driver postinst to skip modprobe ==="
         POSTINST=/var/lib/dpkg/info/hailort-pcie-driver.postinst
         if [ -f "$POSTINST" ]; then
-            # In chroot: skip apt-list check (it fails with pipefail) and skip
-            # modprobe reload. Module build (make install_dkms) still runs.
-            sed -i '1a if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then check_build_essential() { return 0; }; reload_pcie_driver() { echo "chroot: skip modprobe"; }; fi' "$POSTINST"
+            # In chroot: skip apt-list check (pipefail), skip make clean
+            # (uname -r leaks host azure kernel, build dir missing), skip
+            # modprobe. DKMS build (make install_dkms) still runs for rpi kernels.
+            sed -i '1a if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then check_build_essential() { return 0; }; reload_pcie_driver() { echo "chroot: skip modprobe"; }; make() { [ "$1" = "clean" ] && { echo "chroot: skip make clean"; return 0; }; command make "$@"; }; fi' "$POSTINST"
             dpkg --configure hailort-pcie-driver || {
                 echo "=== dpkg --configure failed, postinst log: ==="
                 cat /var/log/hailort-pcie-driver.deb.log 2>&1 || true
