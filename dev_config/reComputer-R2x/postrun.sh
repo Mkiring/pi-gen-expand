@@ -5,16 +5,40 @@ apt-get update
 
 # Install only target kernel headers (Pi 5 + Pi 4 v8), NOT raspberrypi-kernel-headers
 # which pulls in all flavors including 6.1.21-v8+ where hailo-dkms 4.20.0 fails to build.
-# hailo-all pulls in hailort, hailofw, hailo-dkms.
-if ! DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    build-essential linux-headers-rpi-2712 linux-headers-rpi-v8 hailo-all; then
-    echo "=== apt-get install failed, diagnosing ==="
-    dpkg --audit 2>&1 || true
-    echo "=== non-installed/broken packages ==="
-    dpkg -l | grep -vE '^(ii|rc)' || true
-    echo "=== last 50 lines of dpkg log ==="
-    tail -50 /var/log/dpkg.log 2>&1 || true
-    exit 1
+#
+# Behavior differs by Debian version:
+# - bookworm: hailo-all 4.x → hailo-dkms (DKMS auto-build), straightforward
+# - trixie:   hailo-all 5.x → hailort-pcie-driver, whose postinst runs modprobe
+#   and fails in chroot. Patch postinst to skip modprobe but keep module build.
+DEBIAN_VER=$(cat /etc/debian_version 2>/dev/null | awk -F'.' '{print $1}')
+
+if [ "${DEBIAN_VER:-0}" -ge 13 ]; then
+    # === Trixie (Debian 13) ===
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        build-essential linux-headers-rpi-2712 linux-headers-rpi-v8 hailo-all; then
+        echo "=== trixie: patching hailort-pcie-driver postinst to skip modprobe ==="
+        POSTINST=/var/lib/dpkg/info/hailort-pcie-driver.postinst
+        if [ -f "$POSTINST" ]; then
+            # Override modprobe with no-op in chroot; rest of postinst (module build,
+            # firmware, udev) still runs.
+            sed -i '1a if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then modprobe() { echo "chroot: skip modprobe"; }; fi' "$POSTINST"
+            dpkg --configure hailort-pcie-driver
+        fi
+        # Retry now that postinst is patched
+        DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential linux-headers-rpi-2712 linux-headers-rpi-v8 hailo-all
+    fi
+else
+    # === Bookworm (Debian 12) ===
+    # hailo-all 4.x uses hailo-dkms, no postinst issue expected.
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        build-essential linux-headers-rpi-2712 linux-headers-rpi-v8 hailo-all; then
+        echo "=== bookworm: apt-get install failed, diagnosing ==="
+        dpkg --audit 2>&1 || true
+        dpkg -l | grep -vE '^(ii|rc)' || true
+        tail -50 /var/log/dpkg.log 2>&1 || true
+        exit 1
+    fi
 fi
 
 # Install hailo-rpi5-examples
