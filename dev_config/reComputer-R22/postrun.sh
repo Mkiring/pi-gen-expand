@@ -19,10 +19,14 @@ if [ "${DEBIAN_VER:-0}" -ge 13 ]; then
         echo "=== trixie: patching hailort-pcie-driver postinst to skip modprobe ==="
         POSTINST=/var/lib/dpkg/info/hailort-pcie-driver.postinst
         if [ -f "$POSTINST" ]; then
-            # Override modprobe with no-op in chroot; rest of postinst (module build,
-            # firmware, udev) still runs.
-            sed -i '1a if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then modprobe() { echo "chroot: skip modprobe"; }; fi' "$POSTINST"
-            dpkg --configure hailort-pcie-driver
+            # In chroot: skip apt-list check (it fails with pipefail) and skip
+            # modprobe reload. Module build (make install_dkms) still runs.
+            sed -i '1a if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then check_build_essential() { return 0; }; reload_pcie_driver() { echo "chroot: skip modprobe"; }; fi' "$POSTINST"
+            dpkg --configure hailort-pcie-driver || {
+                echo "=== dpkg --configure failed, postinst log: ==="
+                cat /var/log/hailort-pcie-driver.deb.log 2>&1 || true
+                exit 1
+            }
         fi
         # Retry now that postinst is patched
         DEBIAN_FRONTEND=noninteractive apt-get install -y \
