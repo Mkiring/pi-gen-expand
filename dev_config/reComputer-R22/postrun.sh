@@ -19,15 +19,22 @@ if [ "${DEBIAN_VER:-0}" -ge 13 ]; then
         echo "=== trixie: patching hailort-pcie-driver postinst to skip modprobe ==="
         POSTINST=/var/lib/dpkg/info/hailort-pcie-driver.postinst
         if [ -f "$POSTINST" ]; then
-            # In chroot: skip apt-list check (pipefail), skip make clean
-            # (uname -r leaks host azure kernel, build dir missing), skip
-            # modprobe. DKMS build (make install_dkms) still runs for rpi kernels.
-            sed -i '1a if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then check_build_essential() { return 0; }; reload_pcie_driver() { echo "chroot: skip modprobe"; }; make() { [ "$1" = "clean" ] && { echo "chroot: skip make clean"; return 0; }; command make "$@"; }; fi' "$POSTINST"
+            # chroot: uname -r leaks host kernel, all make/dkms calls fail
+            # (host kernel != rpi kernel, /lib/modules/$(uname -r)/build missing).
+            # Skip postinst entirely; manually build DKMS for rpi kernels below.
+            sed -i '1a if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then echo "chroot: skip postinst"; exit 0; fi' "$POSTINST"
             dpkg --configure hailort-pcie-driver || {
                 echo "=== dpkg --configure failed, postinst log: ==="
                 cat /var/log/hailort-pcie-driver.deb.log 2>&1 || true
                 exit 1
             }
+            # Manually build DKMS for installed rpi kernels (uname -r leaks host)
+            DKMS_VER=$(dpkg-query -W -f='${Version}' hailort-pcie-driver 2>/dev/null)
+            for kver in $(ls /lib/modules 2>/dev/null | grep -v "$(uname -r)"); do
+                echo "=== building hailo_pci/$DKMS_VER for $kver ==="
+                dkms add hailo_pci/$DKMS_VER -k "$kver" 2>&1 || true
+                dkms install hailo_pci/$DKMS_VER -k "$kver" 2>&1 || true
+            done
         fi
         # Retry now that postinst is patched
         DEBIAN_FRONTEND=noninteractive apt-get install -y \
